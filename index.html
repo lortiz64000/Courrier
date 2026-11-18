@@ -112,6 +112,24 @@ dialog{border-radius:20px;animation:up .2s ease-out}
 @keyframes up{from{transform:translateY(16px);opacity:0}}
 #toast{border-radius:999px;padding:10px 20px}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ---- Colonnes redimensionnables, dossiers, déplacement ---- */
+#app{position:relative;grid-template-columns:var(--c1,220px) var(--c2,390px) 1fr}
+.rz{position:absolute;top:0;bottom:0;width:8px;cursor:col-resize;z-index:5}
+#rz1{left:calc(var(--c1,220px) - 4px)}
+#rz2{left:calc(var(--c1,220px) + var(--c2,390px) - 4px)}
+.rz:hover,.rz.on{background:var(--acc);opacity:.45}
+@media(max-width:900px){#app{grid-template-columns:1fr}.rz{display:none}}
+.sec{margin:14px 12px 2px;font-size:12px;opacity:.7}
+.fa{display:none;gap:2px}
+#labels a:hover .fa{display:inline-flex}
+.fa button{padding:0 6px;background:transparent;border:0;color:inherit}
+#labels a.drop{outline:2px dashed var(--mark);outline-offset:-2px}
+#newf{background:transparent;color:var(--sideink);border:1px dashed rgba(255,255,255,.3)}
+#mv,#fd{width:min(380px,94vw)}
+dialog h3{margin:0 0 4px}
+#mvl{display:grid;gap:6px;max-height:50vh;overflow:auto;margin-top:10px}
+#mvl button{text-align:left;border-radius:12px}
 </style>
 </head>
 <body>
@@ -130,10 +148,12 @@ dialog{border-radius:20px;animation:up .2s ease-out}
 <div id="auth" hidden><span>Session Google expirée.</span><button id="reauth">Se reconnecter</button></div>
 
 <div id="app" hidden>
+  <div class="rz" id="rz1" data-k="c1"></div><div class="rz" id="rz2" data-k="c2"></div>
   <aside>
     <h1>Courrier</h1>
     <button class="pri" id="newbtn">Nouveau message</button>
     <nav id="labels"></nav>
+    <button id="newf">＋ Nouveau dossier</button>
     <div class="foot"><button id="sigbtn">Signature</button><button id="out">Déconnexion</button></div>
   </aside>
   <section id="lp">
@@ -152,6 +172,9 @@ dialog{border-radius:20px;animation:up .2s ease-out}
   <p class="mu" style="color:var(--mute);font-size:12px;margin:6px 0 0">Texte brut. Les pièces jointes à l’envoi ne sont pas encore gérées.</p>
   <div class="act"><button id="cancel">Annuler</button><button class="pri" id="send">Envoyer</button></div>
 </dialog>
+
+<dialog id="mv"><h3>Déplacer vers…</h3><div id="mvl"></div><div class="act"><button id="mvx">Annuler</button></div></dialog>
+<dialog id="fd"><h3 id="fdt"></h3><input id="fdi" maxlength="100" aria-label="Nom du dossier"><div class="act"><button id="fdc">Annuler</button><button class="pri" id="fdo">Valider</button></div></dialog>
 
 <div id="toast" hidden></div>
 
@@ -226,11 +249,17 @@ async function loadLabels(){
   const {labels}=await api('labels');
   const inbox=await api('labels/INBOX');
   const users=labels.filter(l=>l.type=='user').sort((a,b)=>a.name.localeCompare(b.name,'fr'));
-  const all=[...SYS.map(([id,n])=>({id,name:n})),...users.map(l=>({id:l.id,name:l.name}))];
-  $('#labels').innerHTML=all.map(l=>`<a data-id="${esc(l.id)}" class="${l.id==S.label&&!S.q?'on':''}" tabindex="0"><span><i class="ic">${IC[l.id]||'🏷️'}</i>${esc(l.name)}</span>${l.id=='INBOX'&&inbox.threadsUnread?`<span class="n">${inbox.threadsUnread}</span>`:''}</a>`).join('');
+  S.users=users;const all=[...SYS.map(([id,n])=>({id,name:n})),...users.map(l=>({id:l.id,name:l.name,u:1}))];
+  $('#labels').innerHTML=all.map((l,i)=>(l.u&&!all[i-1].u?'<div class="sec">Dossiers</div>':'')+`<a data-id="${esc(l.id)}"${l.u?` data-u="1" style="padding-left:${12+(l.name.split('/').length-1)*14}px"`:''} class="${l.id==S.label&&!S.q?'on':''}" tabindex="0"><span><i class="ic">${IC[l.id]||'🏷️'}</i>${esc(l.u?l.name.split('/').pop():l.name)}</span>${l.id=='INBOX'&&inbox.threadsUnread?`<span class="n">${inbox.threadsUnread}</span>`:''}${l.u?'<span class="fa"><button data-f="r" title="Renommer">✏️</button><button data-f="d" title="Supprimer">🗑</button></span>':''}</a>`).join('');
   document.title=(inbox.threadsUnread?`(${inbox.threadsUnread}) `:'')+'Courrier';
 }
-$('#labels').onclick=e=>{const a=e.target.closest('a');if(!a)return;S.label=a.dataset.id;S.q='';$('#q').value='';document.querySelectorAll('#labels a').forEach(x=>x.classList.toggle('on',x==a));load()};
+$('#labels').onclick=async e=>{
+  const a=e.target.closest('a');if(!a)return;const f=e.target.closest('[data-f]');
+  if(f){const id=a.dataset.id,l=S.users.find(x=>x.id==id);
+    if(f.dataset.f=='r'){const n=await askName('Renommer le dossier',l.name);if(n&&n!=l.name){await api('labels/'+id,{method:'PATCH',body:JSON.stringify({name:n})});toast('Dossier renommé');await loadLabels()}}
+    else if(confirm(`Supprimer le dossier « ${l.name} » ?\n\nLes mails ne sont pas supprimés : ils perdent seulement ce dossier.`)){await api('labels/'+id,{method:'DELETE'});toast('Dossier supprimé');if(S.label==id)S.label='INBOX';await loadLabels();load()}
+    return}
+  S.label=a.dataset.id;S.q='';$('#q').value='';document.querySelectorAll('#labels a').forEach(x=>x.classList.toggle('on',x==a));load()};
 $('#q').onkeydown=e=>{if(e.key=='Enter'){S.q=e.target.value.trim();document.querySelectorAll('#labels a').forEach(x=>x.classList.remove('on'));load()}};
 $('#refresh').onclick=()=>{loadLabels();load()};
 
@@ -245,7 +274,7 @@ async function load(more){
   const det=await Promise.all((r.threads||[]).map(t=>api(`threads/${t.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`)));
   const html=det.map(t=>{
     const ms=t.messages,l=ms[ms.length-1],un=ms.some(m=>(m.labelIds||[]).includes('UNREAD'));
-    return `<div class="row${un?' un':''}${t.id==S.cur?' on':''}" data-id="${t.id}"><div class="avw">${av(hdr(l,'From'))}</div><div class="rc"><div class="t"><span class="f">${esc(nm(hdr(l,'From')))}${ms.length>1?` (${ms.length})`:''}</span><span class="d">${fd(hdr(l,'Date'))}</span></div><div class="s">${esc(hdr(ms[0],'Subject')||'(sans objet)')}</div><div class="sn">${esc(l.snippet)}</div></div><div class="qa"><button data-q="a" title="Archiver">✓</button><button data-q="t" title="Corbeille">🗑</button></div></div>`}).join('');
+    return `<div class="row${un?' un':''}${t.id==S.cur?' on':''}" data-id="${t.id}" draggable="true"><div class="avw">${av(hdr(l,'From'))}</div><div class="rc"><div class="t"><span class="f">${esc(nm(hdr(l,'From')))}${ms.length>1?` (${ms.length})`:''}</span><span class="d">${fd(hdr(l,'Date'))}</span></div><div class="s">${esc(hdr(ms[0],'Subject')||'(sans objet)')}</div><div class="sn">${esc(l.snippet)}</div></div><div class="qa"><button data-q="m" title="Déplacer">📁</button><button data-q="a" title="Archiver">✓</button><button data-q="t" title="Corbeille">🗑</button></div></div>`}).join('');
   if(!more)$('#list').innerHTML=html||(S.q?'<div class="empty">Aucun résultat.</div>':'<div class="empty zero"><div class="party">🎉</div>Rien ici. Bien joué.</div>');else $('#list').insertAdjacentHTML('beforeend',html);
   $('#more').hidden=!S.next;
 }
@@ -253,6 +282,7 @@ $('#more').onclick=()=>load(true);
 $('#list').onclick=async e=>{
   const r=e.target.closest('.row');if(!r)return;const q=e.target.closest('[data-q]');
   if(!q){openT(r.dataset.id);return}
+  if(q.dataset.q=='m'){openMove(r.dataset.id);return}
   const id=r.dataset.id,was=S.cur;S.cur=id;
   if(q.dataset.q=='a'){await mod([],['INBOX']);toast('Archivé')}else{await api(`threads/${id}/trash`,{method:'POST'});toast('Mis à la corbeille')}
   if(was&&was!=id){S.cur=was;r.classList.add('bye');setTimeout(()=>r.remove(),220);loadLabels()}else drop();
@@ -281,7 +311,7 @@ function fill(d,m){
 }
 function show(t){
   const ms=t.messages,starred=ms.some(m=>(m.labelIds||[]).includes('STARRED'));
-  $('#read').innerHTML=`<div class="tb"><button data-a="arch">📥 Archiver</button><button data-a="trash">🗑 Corbeille</button><button data-a="unread">✉ Non lu</button><button data-a="star">${starred?'⭐ Suivi':'☆ Suivre'}</button><span class="sp"></span><button class="pri" data-a="reply">Répondre</button><button data-a="fwd">Transférer</button></div><h2>${esc(hdr(ms[0],'Subject')||'(sans objet)')}</h2><div id="msgs"></div>`;
+  $('#read').innerHTML=`<div class="tb"><button data-a="arch">📥 Archiver</button><button data-a="move">📁 Déplacer</button><button data-a="trash">🗑 Corbeille</button><button data-a="unread">✉ Non lu</button><button data-a="star">${starred?'⭐ Suivi':'☆ Suivre'}</button><span class="sp"></span><button class="pri" data-a="reply">Répondre</button><button data-a="fwd">Transférer</button></div><h2>${esc(hdr(ms[0],'Subject')||'(sans objet)')}</h2><div id="msgs"></div>`;
   ms.forEach((m,i)=>{
     const d=document.createElement('details');d.className='msg '+((m.labelIds||[]).includes('SENT')?'me':'them');d.open=i==ms.length-1;
     const f=hdr(m,'From'),cc=hdr(m,'Cc'),h=find(m.payload,'text/html');
@@ -303,6 +333,7 @@ $('#read').onclick=async e=>{
   else if(a=='unread'){await mod(['UNREAD'],[]);const r=document.querySelector(`.row[data-id="${S.cur}"]`);if(r)r.classList.add('un');toast('Marqué non lu');loadLabels()}
   else if(a=='star'){const s=t.messages.some(m=>(m.labelIds||[]).includes('STARRED'));await mod(s?[]:['STARRED'],s?['STARRED']:[]);openT(S.cur)}
   else if(a=='img'){S.imgs=true;show(t)}
+  else if(a=='move')openMove(S.cur);
   else if(a=='reply'||a=='fwd')replyTo(a);
   else if(a=='dl'){const r=await api(`messages/${b.dataset.m}/attachments/${b.dataset.aid}`);const u=Uint8Array.from(atob(r.data.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));const l=document.createElement('a');l.href=URL.createObjectURL(new Blob([u]));l.download=b.dataset.n;l.click()}
 };
@@ -337,6 +368,47 @@ $('#send').onclick=async()=>{
   finally{$('#send').disabled=false}
 };
 
+/* dossiers : nom, déplacement, glisser-déposer, colonnes */
+function askName(t,v){return new Promise(res=>{const d=$('#fd');$('#fdt').textContent=t;$('#fdi').value=v||'';
+  const done=x=>{d.close();res(x)};
+  $('#fdo').onclick=()=>done($('#fdi').value.trim());$('#fdc').onclick=()=>done('');
+  $('#fdi').onkeydown=e=>{if(e.key=='Enter')done($('#fdi').value.trim())};
+  d.oncancel=()=>res('');d.showModal();$('#fdi').select()})}
+async function createLabel(n){return api('labels',{method:'POST',body:JSON.stringify({name:n,labelListVisibility:'labelShow',messageListVisibility:'show'})})}
+function openMove(id){S.mv=id;
+  $('#mvl').innerHTML='<button data-id="INBOX">📥 Boîte de réception</button>'+(S.users||[]).map(l=>`<button data-id="${esc(l.id)}">📁 ${esc(l.name)}</button>`).join('')+'<button data-new="1">＋ Nouveau dossier…</button>';
+  $('#mv').showModal()}
+$('#mvx').onclick=()=>$('#mv').close();
+$('#mvl').onclick=async e=>{const b=e.target.closest('button');if(!b)return;$('#mv').close();let t;
+  if(b.dataset.new){const n=await askName('Nouveau dossier','');if(!n)return;const l=await createLabel(n);t={id:l.id,name:l.name};await loadLabels()}
+  else if(b.dataset.id=='INBOX')t={id:'INBOX',name:'Boîte de réception'};
+  else t={id:b.dataset.id,name:S.users.find(x=>x.id==b.dataset.id).name};
+  moveTo(S.mv,t)};
+async function moveTo(id,t){
+  const rm=t.id=='INBOX'?[]:['INBOX'];if(!S.q&&(S.users||[]).some(l=>l.id==S.label))rm.push(S.label);
+  await api(`threads/${id}/modify`,{method:'POST',body:JSON.stringify({addLabelIds:[t.id],removeLabelIds:rm.filter(x=>x!=t.id)})});
+  toast('Déplacé vers « '+t.name+' »');
+  if(!S.q&&rm.includes(S.label)){
+    if(S.cur==id)drop();else{const r=document.querySelector(`.row[data-id="${id}"]`);if(r){r.classList.add('bye');setTimeout(()=>r.remove(),220)}}
+  }
+  loadLabels();
+}
+$('#newf').onclick=async()=>{const n=await askName('Nouveau dossier','');if(!n)return;await createLabel(n);toast('Dossier créé');loadLabels()};
+$('#list').addEventListener('dragstart',e=>{const r=e.target.closest('.row');if(r){e.dataTransfer.setData('text/plain',r.dataset.id);e.dataTransfer.effectAllowed='move'}});
+$('#labels').addEventListener('dragover',e=>{const a=e.target.closest('a[data-u]');if(a){e.preventDefault();document.querySelectorAll('#labels a.drop').forEach(x=>x!=a&&x.classList.remove('drop'));a.classList.add('drop')}});
+$('#labels').addEventListener('dragleave',e=>{const a=e.target.closest('a');if(a&&!a.contains(e.relatedTarget))a.classList.remove('drop')});
+$('#labels').addEventListener('drop',e=>{const a=e.target.closest('a[data-u]');document.querySelectorAll('#labels a.drop').forEach(x=>x.classList.remove('drop'));if(!a)return;e.preventDefault();const id=e.dataTransfer.getData('text/plain');if(id)moveTo(id,{id:a.dataset.id,name:S.users.find(x=>x.id==a.dataset.id).name})});
+(function(){
+  const R=document.documentElement.style,L={c1:[170,420,220],c2:[280,720,390]};
+  for(const k in L){const v=localStorage['gm_'+k];if(v)R.setProperty('--'+k,v+'px')}
+  document.querySelectorAll('.rz').forEach(z=>{const k=z.dataset.k;
+    z.onpointerdown=e=>{z.setPointerCapture(e.pointerId);z.classList.add('on');
+      const x0=e.clientX,w0=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--'+k))||L[k][2];
+      z.onpointermove=m=>{const w=Math.min(L[k][1],Math.max(L[k][0],w0+m.clientX-x0));R.setProperty('--'+k,w+'px');localStorage['gm_'+k]=w};
+      z.onpointerup=()=>{z.classList.remove('on');z.onpointermove=null}};
+    z.ondblclick=()=>{R.removeProperty('--'+k);localStorage.removeItem('gm_'+k)}});
+})();
+
 /* raccourcis : j/k naviguer, e archiver, # corbeille, r répondre, c écrire, / chercher */
 document.addEventListener('keydown',e=>{
   if(e.target.closest('input,textarea,dialog')||e.ctrlKey||e.metaKey||e.altKey||$('#app').hidden)return;
@@ -346,6 +418,7 @@ document.addEventListener('keydown',e=>{
   else if(k=='e'&&S.cur)$('#read').querySelector('[data-a=arch]').click();
   else if(k=='#'&&S.cur)$('#read').querySelector('[data-a=trash]').click();
   else if(k=='r'&&S.cur)replyTo('reply');
+  else if(k=='v'&&S.cur)openMove(S.cur);
   else if(k=='c'){e.preventDefault();compose()}
   else if(k=='/'){e.preventDefault();$('#q').focus()}
 });
