@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Courrier</title>
+<style>
+:root{--bg:#e9edf0;--panel:#f9fafb;--ink:#13202b;--mute:#5d6b77;--line:#d5dce2;--acc:#0f4c75;--sel:#dbe7f1;--mark:#e8960c;--onacc:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#0f161c;--panel:#151e26;--ink:#e4ebf0;--mute:#8b9aa6;--line:#26333e;--acc:#6fb1e0;--sel:#1d2f3f;--mark:#f0a93a;--onacc:#08121a}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font:14px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--ink)}
+[hidden]{display:none!important}
+button{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer}
+button:hover{border-color:var(--acc)}
+button.pri{background:var(--acc);border-color:var(--acc);color:var(--onacc);font-weight:600}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+input,textarea{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 10px;width:100%}
+#setup{max-width:520px;margin:8vh auto;padding:28px;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+#setup h1{margin:0 0 6px;font-size:22px}
+#setup p{color:var(--mute);margin:8px 0}
+#setup code{background:var(--sel);padding:1px 6px;border-radius:4px;color:var(--ink);user-select:all}
+#setup .err{color:#c0392b}
+#app{display:grid;grid-template-columns:220px 390px 1fr;height:100%}
+aside{padding:16px 12px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:14px;overflow:auto;background:var(--panel)}
+aside h1{font-size:17px;margin:0 6px}
+#labels a{display:flex;justify-content:space-between;padding:7px 10px;border-radius:6px;cursor:pointer;color:var(--mute)}
+#labels a:hover{background:var(--bg)}
+#labels a.on{background:var(--sel);color:var(--ink);font-weight:600}
+#labels .n{font-variant-numeric:tabular-nums}
+.foot{margin-top:auto;display:flex;gap:6px;flex-wrap:wrap}
+#lp{display:flex;flex-direction:column;border-right:1px solid var(--line);min-height:0}
+.bar{display:flex;gap:6px;padding:10px;border-bottom:1px solid var(--line);background:var(--panel)}
+#list{overflow:auto;flex:1}
+.row{padding:10px 14px 10px 16px;border-bottom:1px solid var(--line);cursor:pointer;border-left:3px solid transparent}
+.row:hover{background:var(--panel)}
+.row.on{background:var(--sel)}
+.row.un{border-left-color:var(--mark)}
+.row.un .f,.row.un .s{font-weight:700}
+.row .t{display:flex;justify-content:space-between;gap:8px}
+.f,.s,.sn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.d{color:var(--mute);font-size:12px;white-space:nowrap}
+.sn{color:var(--mute)}
+#more{margin:10px;width:calc(100% - 20px)}
+#read{overflow:auto;padding:0 28px 40px;min-height:0}
+.empty{color:var(--mute);padding:40px 0;text-align:center}
+.tb{display:flex;gap:6px;flex-wrap:wrap;padding:14px 0;position:sticky;top:0;background:var(--bg);z-index:2}
+.sp{flex:1}
+#read h2{font-size:20px;margin:6px 0 14px;line-height:1.3}
+.msg{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:10px}
+.msg summary{padding:10px 14px;cursor:pointer;display:flex;justify-content:space-between;gap:10px}
+.msg .mu{color:var(--mute);font-size:12px}
+.msg .hd{padding:0 14px 8px;color:var(--mute);font-size:12px}
+.msg .bd{padding:0 14px 12px}
+.msg iframe{width:100%;border:0;background:#fff;border-radius:4px;min-height:40px}
+.at{padding:0 14px 12px;display:flex;gap:6px;flex-wrap:wrap}
+.imgbar{margin:0 0 8px}
+#auth{position:fixed;top:0;left:0;right:0;background:var(--mark);color:#111;padding:8px 14px;display:flex;gap:12px;align-items:center;z-index:10}
+#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:8px;z-index:20}
+dialog{width:min(680px,94vw);background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:18px}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+dialog label{display:block;margin:8px 0 3px;color:var(--mute);font-size:12px}
+dialog textarea{height:280px;resize:vertical}
+.act{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+@media(max-width:900px){#app{grid-template-columns:1fr}aside,#read{display:none}}
+</style>
+</head>
+<body>
+
+<div id="setup" hidden>
+  <h1>Courrier</h1>
+  <p>Ton client Gmail dans le navigateur. Il parle directement à l’API Gmail : aucun serveur intermédiaire, aucune donnée stockée ailleurs que dans ce navigateur.</p>
+  <p>Configuration unique : dans Google Cloud, crée un identifiant OAuth « Application Web » et ajoute cette origine JavaScript autorisée :</p>
+  <p><code id="origin"></code></p>
+  <label for="cid" style="display:block;margin-top:14px">ID client OAuth</label>
+  <input id="cid" placeholder="123456-abc….apps.googleusercontent.com" autocomplete="off">
+  <p class="err" id="serr"></p>
+  <button class="pri" id="go">Se connecter avec Google</button>
+</div>
+
+<div id="auth" hidden><span>Session Google expirée.</span><button id="reauth">Se reconnecter</button></div>
+
+<div id="app" hidden>
+  <aside>
+    <h1>Courrier</h1>
+    <button class="pri" id="newbtn">Nouveau message</button>
+    <nav id="labels"></nav>
+    <div class="foot"><button id="sigbtn">Signature</button><button id="out">Déconnexion</button></div>
+  </aside>
+  <section id="lp">
+    <div class="bar"><input id="q" placeholder="Rechercher dans tout le courrier ( / )" aria-label="Rechercher"><button id="refresh" title="Actualiser">Actualiser</button></div>
+    <div id="list"></div>
+    <button id="more" hidden>Charger plus</button>
+  </section>
+  <main id="read"><div class="empty">Choisis un message pour le lire.</div></main>
+</div>
+
+<dialog id="compose">
+  <label for="to">À</label><input id="to">
+  <label for="cc">Cc</label><input id="cc">
+  <label for="sub">Objet</label><input id="sub">
+  <label for="body">Message</label><textarea id="body"></textarea>
+  <p class="mu" style="color:var(--mute);font-size:12px;margin:6px 0 0">Texte brut. Les pièces jointes à l’envoi ne sont pas encore gérées.</p>
+  <div class="act"><button id="cancel">Annuler</button><button class="pri" id="send">Envoyer</button></div>
+</dialog>
+
+<div id="toast" hidden></div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const SC='https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.send';
+const API='https://gmail.googleapis.com/gmail/v1/users/me/';
+const SYS=[['INBOX','Boîte de réception'],['STARRED','Suivis'],['SENT','Envoyés'],['DRAFT','Brouillons'],['SPAM','Spam'],['TRASH','Corbeille']];
+let CID=localStorage.gm_cid||'', tok=null, S={label:'INBOX',q:'',next:null,cur:null,thr:null,imgs:false}, C={};
+try{tok=JSON.parse(sessionStorage.gm_tok||'null')}catch(e){}
+if(tok&&tok.exp<Date.now())tok=null;
+
+/* utilitaires */
+const hdr=(m,n)=>((m.payload.headers||[]).find(h=>h.name.toLowerCase()==n.toLowerCase())||{}).value||'';
+const nm=f=>f.replace(/<.*>/,'').replace(/"/g,'').trim()||f;
+const ad=f=>(f.match(/<(.*)>/)||[0,f])[1];
+const fd=d=>{d=new Date(d);if(isNaN(d))return'';const n=new Date();return d.toDateString()==n.toDateString()?d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString('fr-FR',{day:'2-digit',month:'short'})};
+const fl=d=>{d=new Date(d);return isNaN(d)?'':d.toLocaleString('fr-FR',{dateStyle:'medium',timeStyle:'short'})};
+const dec=s=>{const b=atob(s.replace(/-/g,'+').replace(/_/g,'/'));return new TextDecoder().decode(Uint8Array.from(b,c=>c.charCodeAt(0)))};
+const u8b64=s=>{let b='';new TextEncoder().encode(s).forEach(c=>b+=String.fromCharCode(c));return btoa(b)};
+const b64u=s=>u8b64(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>t.hidden=true,3500)}
+function find(p,mt){if(p.mimeType==mt&&p.body&&p.body.data)return p;for(const c of p.parts||[]){const r=find(c,mt);if(r)return r}return null}
+function atts(p,o=[]){if(p.filename&&p.body&&p.body.attachmentId)o.push(p);(p.parts||[]).forEach(c=>atts(c,o));return o}
+function plain(m){const t=find(m.payload,'text/plain');if(t)return dec(t.body.data);const h=find(m.payload,'text/html');return h?(new DOMParser().parseFromString(dec(h.body.data),'text/html').body.textContent||''):''}
+
+/* authentification */
+function authNeeded(){$('#auth').hidden=false}
+function waitG(){return new Promise((res,rej)=>{let n=0;(function t(){if(window.google&&google.accounts)return res();if(++n>50)return rej(new Error('Bibliothèque Google non chargée : le script accounts.google.com/gsi/client est peut-être bloqué.'));setTimeout(t,100)})()})}
+async function connect(){
+  await waitG();
+  return new Promise((res,rej)=>{
+    const tc=google.accounts.oauth2.initTokenClient({client_id:CID,scope:SC,
+      callback:r=>{if(r.error)return rej(new Error(r.error_description||r.error));tok={t:r.access_token,exp:Date.now()+(r.expires_in-120)*1000};sessionStorage.gm_tok=JSON.stringify(tok);res()},
+      error_callback:e=>rej(new Error(e.type=='popup_failed_to_open'?'La fenêtre Google a été bloquée par le navigateur. Autorise les pop-ups pour ce site.':(e.type||'Connexion annulée')))});
+    tc.requestAccessToken();
+  });
+}
+async function api(p,o={}){
+  if(!tok||tok.exp<Date.now()){authNeeded();throw new Error('AUTH')}
+  const r=await fetch(API+p,{...o,headers:{Authorization:'Bearer '+tok.t,'Content-Type':'application/json'}});
+  if(r.status==401){authNeeded();throw new Error('AUTH')}
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error((e.error&&e.error.message)||('Erreur '+r.status))}
+  return r.status==204?null:r.json();
+}
+window.addEventListener('unhandledrejection',e=>{if(e.reason&&e.reason.message!='AUTH')toast(e.reason.message||'Erreur');e.preventDefault()});
+
+/* démarrage */
+$('#origin').textContent=location.origin;$('#cid').value=CID;
+$('#go').onclick=async()=>{
+  CID=$('#cid').value.trim();if(!CID){$('#serr').textContent='Colle d’abord l’ID client OAuth.';return}
+  localStorage.gm_cid=CID;$('#serr').textContent='';
+  try{await connect();boot()}catch(e){$('#serr').textContent=e.message}
+};
+$('#reauth').onclick=async()=>{try{await connect();$('#auth').hidden=true;load()}catch(e){toast(e.message)}};
+$('#out').onclick=()=>{if(tok&&window.google)google.accounts.oauth2.revoke(tok.t);sessionStorage.removeItem('gm_tok');location.reload()};
+if(CID&&tok)boot();else $('#setup').hidden=false;
+
+async function boot(){
+  $('#setup').hidden=true;$('#app').hidden=false;
+  await loadLabels();await load();
+  setInterval(()=>{if(tok&&tok.exp>Date.now())loadLabels().catch(()=>{})},120000);
+}
+
+/* libellés */
+async function loadLabels(){
+  const {labels}=await api('labels');
+  const inbox=await api('labels/INBOX');
+  const users=labels.filter(l=>l.type=='user').sort((a,b)=>a.name.localeCompare(b.name,'fr'));
+  const all=[...SYS.map(([id,n])=>({id,name:n})),...users.map(l=>({id:l.id,name:l.name}))];
+  $('#labels').innerHTML=all.map(l=>`<a data-id="${esc(l.id)}" class="${l.id==S.label&&!S.q?'on':''}" tabindex="0"><span>${esc(l.name)}</span>${l.id=='INBOX'&&inbox.threadsUnread?`<span class="n">${inbox.threadsUnread}</span>`:''}</a>`).join('');
+  document.title=(inbox.threadsUnread?`(${inbox.threadsUnread}) `:'')+'Courrier';
+}
+$('#labels').onclick=e=>{const a=e.target.closest('a');if(!a)return;S.label=a.dataset.id;S.q='';$('#q').value='';document.querySelectorAll('#labels a').forEach(x=>x.classList.toggle('on',x==a));load()};
+$('#q').onkeydown=e=>{if(e.key=='Enter'){S.q=e.target.value.trim();document.querySelectorAll('#labels a').forEach(x=>x.classList.remove('on'));load()}};
+$('#refresh').onclick=()=>{loadLabels();load()};
+
+/* liste */
+async function load(more){
+  const p=new URLSearchParams({maxResults:25});
+  if(S.q)p.set('q',S.q);else p.set('labelIds',S.label);
+  if(more&&S.next)p.set('pageToken',S.next);
+  if(!more)$('#list').innerHTML='<div class="empty">Chargement…</div>';
+  const r=await api('threads?'+p);
+  S.next=r.nextPageToken||null;
+  const det=await Promise.all((r.threads||[]).map(t=>api(`threads/${t.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`)));
+  const html=det.map(t=>{
+    const ms=t.messages,l=ms[ms.length-1],un=ms.some(m=>(m.labelIds||[]).includes('UNREAD'));
+    return `<div class="row${un?' un':''}${t.id==S.cur?' on':''}" data-id="${t.id}"><div class="t"><span class="f">${esc(nm(hdr(l,'From')))}${ms.length>1?` (${ms.length})`:''}</span><span class="d">${fd(hdr(l,'Date'))}</span></div><div class="s">${esc(hdr(ms[0],'Subject')||'(sans objet)')}</div><div class="sn">${esc(l.snippet)}</div></div>`}).join('');
+  if(!more)$('#list').innerHTML=html||'<div class="empty">Aucun message ici.</div>';else $('#list').insertAdjacentHTML('beforeend',html);
+  $('#more').hidden=!S.next;
+}
+$('#more').onclick=()=>load(true);
+$('#list').onclick=e=>{const r=e.target.closest('.row');if(r)openT(r.dataset.id)};
+const rows=()=>[...document.querySelectorAll('.row')];
+
+/* lecture */
+async function openT(id){
+  S.cur=id;S.imgs=false;rows().forEach(r=>r.classList.toggle('on',r.dataset.id==id));
+  $('#read').innerHTML='<div class="empty">Chargement…</div>';
+  const t=await api(`threads/${id}?format=full`);S.thr=t;show(t);
+  if(t.messages.some(m=>(m.labelIds||[]).includes('UNREAD'))){await mod([],['UNREAD']);const r=document.querySelector(`.row[data-id="${id}"]`);if(r)r.classList.remove('un');loadLabels()}
+}
+function bodyDoc(m){
+  const h=find(m.payload,'text/html');
+  const inner=h?dec(h.body.data):`<pre style="white-space:pre-wrap;font:inherit;margin:0">${esc(plain(m))}</pre>`;
+  return `<meta http-equiv="Content-Security-Policy" content="default-src 'none';img-src data: ${S.imgs?'https: http:':''};style-src 'unsafe-inline'"><base target="_blank"><style>body{font:14px/1.5 "Segoe UI",system-ui,sans-serif;margin:8px;color:#1a1a1a;word-wrap:break-word}img{max-width:100%;height:auto}</style>${inner}`;
+}
+function fill(d,m){
+  if(!d.open||d.dataset.f)return;d.dataset.f=1;
+  const f=document.createElement('iframe');
+  f.sandbox='allow-same-origin allow-popups allow-popups-to-escape-sandbox';
+  f.srcdoc=bodyDoc(m);
+  f.onload=()=>{f.style.height=(f.contentDocument.documentElement.scrollHeight+6)+'px'};
+  d.querySelector('.bd').append(f);
+}
+function show(t){
+  const ms=t.messages,starred=ms.some(m=>(m.labelIds||[]).includes('STARRED'));
+  $('#read').innerHTML=`<div class="tb"><button data-a="arch">Archiver</button><button data-a="trash">Corbeille</button><button data-a="unread">Marquer non lu</button><button data-a="star">${starred?'Ne plus suivre':'Suivre'}</button><span class="sp"></span><button class="pri" data-a="reply">Répondre</button><button data-a="fwd">Transférer</button></div><h2>${esc(hdr(ms[0],'Subject')||'(sans objet)')}</h2><div id="msgs"></div>`;
+  ms.forEach((m,i)=>{
+    const d=document.createElement('details');d.className='msg';d.open=i==ms.length-1;
+    const f=hdr(m,'From'),cc=hdr(m,'Cc'),h=find(m.payload,'text/html');
+    d.innerHTML=`<summary><span><b>${esc(nm(f))}</b> <span class="mu">&lt;${esc(ad(f))}&gt;</span></span><span class="mu">${fl(hdr(m,'Date'))}</span></summary><div class="hd">À : ${esc(hdr(m,'To'))}${cc?` — Cc : ${esc(cc)}`:''}</div><div class="bd">${h&&!S.imgs&&/src=["']?https?:/i.test(dec(h.body.data))?'<div class="imgbar"><button data-a="img">Afficher les images distantes</button></div>':''}</div>${atts(m.payload).length?`<div class="at">${atts(m.payload).map(a=>`<button data-a="dl" data-m="${m.id}" data-aid="${esc(a.body.attachmentId)}" data-n="${esc(a.filename)}">${esc(a.filename)}</button>`).join('')}</div>`:''}`;
+    d.addEventListener('toggle',()=>fill(d,m));$('#msgs').append(d);fill(d,m);
+  });
+}
+async function mod(add,rm){await api(`threads/${S.cur}/modify`,{method:'POST',body:JSON.stringify({addLabelIds:add,removeLabelIds:rm})})}
+function drop(){
+  const rs=rows(),i=rs.findIndex(r=>r.dataset.id==S.cur),n=rs[i+1]||rs[i-1];
+  if(rs[i])rs[i].remove();
+  if(n)openT(n.dataset.id);else{S.cur=null;$('#read').innerHTML='<div class="empty">Boîte vide. Rien à traiter.</div>'}
+  loadLabels();
+}
+$('#read').onclick=async e=>{
+  const b=e.target.closest('button');if(!b)return;const a=b.dataset.a,t=S.thr;
+  if(a=='arch'){await mod([],['INBOX']);toast('Archivé');drop()}
+  else if(a=='trash'){await api(`threads/${S.cur}/trash`,{method:'POST'});toast('Mis à la corbeille');drop()}
+  else if(a=='unread'){await mod(['UNREAD'],[]);const r=document.querySelector(`.row[data-id="${S.cur}"]`);if(r)r.classList.add('un');toast('Marqué non lu');loadLabels()}
+  else if(a=='star'){const s=t.messages.some(m=>(m.labelIds||[]).includes('STARRED'));await mod(s?[]:['STARRED'],s?['STARRED']:[]);openT(S.cur)}
+  else if(a=='img'){S.imgs=true;show(t)}
+  else if(a=='reply'||a=='fwd')replyTo(a);
+  else if(a=='dl'){const r=await api(`messages/${b.dataset.m}/attachments/${b.dataset.aid}`);const u=Uint8Array.from(atob(r.data.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));const l=document.createElement('a');l.href=URL.createObjectURL(new Blob([u]));l.download=b.dataset.n;l.click()}
+};
+
+/* rédaction */
+const sig=()=>localStorage.gm_sig?'\n\n-- \n'+localStorage.gm_sig:'';
+function compose(o={}){
+  $('#to').value=o.to||'';$('#cc').value=o.cc||'';$('#sub').value=o.sub||'';$('#body').value=o.body!=null?o.body:sig();
+  C={tid:o.tid,irt:o.irt,refs:o.refs};$('#compose').showModal();
+  const f=o.to?$('#body'):$('#to');f.focus();if(o.to)f.setSelectionRange(0,0);
+}
+function replyTo(kind){
+  const ms=S.thr.messages,m=ms[ms.length-1],subj=hdr(ms[0],'Subject'),from=hdr(m,'Reply-To')||hdr(m,'From');
+  const q=`\n\nLe ${fl(hdr(m,'Date'))}, ${hdr(m,'From')} a écrit :\n`+plain(m).split('\n').map(l=>'> '+l).join('\n');
+  const mid=hdr(m,'Message-ID');
+  if(kind=='reply')compose({to:from,sub:/^re:/i.test(subj)?subj:'Re: '+subj,body:sig()+q,tid:S.thr.id,irt:mid,refs:(hdr(m,'References')+' '+mid).trim()});
+  else compose({sub:/^(tr|fwd):/i.test(subj)?subj:'Tr: '+subj,body:sig()+`\n\n---------- Message transféré ----------\nDe : ${hdr(m,'From')}\nDate : ${fl(hdr(m,'Date'))}\nObjet : ${subj}\n\n`+plain(m)});
+}
+$('#newbtn').onclick=()=>compose();
+$('#cancel').onclick=()=>$('#compose').close();
+$('#sigbtn').onclick=()=>{const s=prompt('Signature ajoutée à tes nouveaux messages :',localStorage.gm_sig||'');if(s!==null){localStorage.gm_sig=s;toast('Signature enregistrée')}};
+$('#send').onclick=async()=>{
+  const to=$('#to').value.trim(),cc=$('#cc').value.trim(),sub=$('#sub').value,body=$('#body').value;
+  if(!to){toast('Ajoute un destinataire.');return}
+  const enc=s=>/^[\x20-\x7e]*$/.test(s)?s:'=?UTF-8?B?'+u8b64(s)+'?=';
+  const h=['To: '+to];if(cc)h.push('Cc: '+cc);
+  h.push('Subject: '+enc(sub),'MIME-Version: 1.0','Content-Type: text/plain; charset=UTF-8','Content-Transfer-Encoding: base64');
+  if(C.irt)h.push('In-Reply-To: '+C.irt,'References: '+C.refs);
+  const raw=b64u(h.join('\r\n')+'\r\n\r\n'+u8b64(body).replace(/.{76}/g,'$&\r\n'));
+  $('#send').disabled=true;
+  try{await api('messages/send',{method:'POST',body:JSON.stringify(C.tid?{raw,threadId:C.tid}:{raw})});$('#compose').close();toast('Message envoyé')}
+  finally{$('#send').disabled=false}
+};
+
+/* raccourcis : j/k naviguer, e archiver, # corbeille, r répondre, c écrire, / chercher */
+document.addEventListener('keydown',e=>{
+  if(e.target.closest('input,textarea,dialog')||e.ctrlKey||e.metaKey||e.altKey||$('#app').hidden)return;
+  const rs=rows(),i=rs.findIndex(r=>r.dataset.id==S.cur),k=e.key;
+  if(k=='j'&&rs[i+1])openT(rs[i+1].dataset.id);
+  else if(k=='k'&&rs[i-1])openT(rs[i-1].dataset.id);
+  else if(k=='e'&&S.cur)$('#read').querySelector('[data-a=arch]').click();
+  else if(k=='#'&&S.cur)$('#read').querySelector('[data-a=trash]').click();
+  else if(k=='r'&&S.cur)replyTo('reply');
+  else if(k=='c'){e.preventDefault();compose()}
+  else if(k=='/'){e.preventDefault();$('#q').focus()}
+});
+</script>
+</body>
+</html>
