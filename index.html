@@ -63,6 +63,55 @@ dialog label{display:block;margin:8px 0 3px;color:var(--mute);font-size:12px}
 dialog textarea{height:280px;resize:vertical}
 .act{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
 @media(max-width:900px){#app{grid-template-columns:1fr}aside,#read{display:none}}
+
+/* ---- Refonte visuelle : conversation, avatars, gestes rapides ---- */
+:root{--bg:#eef2fb;--panel:#fff;--ink:#1c1b33;--mute:#6b6a8a;--line:#e1e3f2;--acc:#5b5bf0;--sel:#e6e6ff;--mark:#ffb020;--onacc:#fff;--side:#1c1b33;--sideink:#c9c8ee}
+@media(prefers-color-scheme:dark){:root{--bg:#12122a;--panel:#1b1b38;--ink:#ecebff;--mute:#9a99c0;--line:#2b2b52;--acc:#8b8bff;--sel:#2a2a5c;--mark:#ffb020;--onacc:#10102a;--side:#0c0c1f;--sideink:#b7b6e0}}
+body{font-family:"Segoe UI Variable","Segoe UI",system-ui,sans-serif}
+button{border-radius:999px;padding:7px 14px;transition:transform .12s,border-color .12s}
+button:active{transform:scale(.95)}
+button.pri{box-shadow:0 2px 0 rgba(0,0,0,.18)}
+input,textarea{border-radius:12px}
+#q{border-radius:999px;padding-left:16px}
+aside{background:var(--side);border-right:0;color:var(--sideink)}
+aside h1{color:#fff;font-size:20px;letter-spacing:-.3px}
+#newbtn{padding:11px;font-size:15px}
+#labels a{border-radius:12px;color:var(--sideink);padding:9px 12px;transition:background .12s,transform .12s}
+#labels a:hover{background:rgba(255,255,255,.08);transform:translateX(2px)}
+#labels a.on{background:var(--acc);color:var(--onacc)}
+.ic{font-style:normal;margin-right:10px}
+#labels .n{background:var(--mark);color:#1c1b33;border-radius:999px;padding:0 8px;font-size:12px;font-weight:700}
+.foot button{background:transparent;color:var(--sideink);border-color:rgba(255,255,255,.22)}
+#lp{background:var(--bg)}
+.bar{background:var(--bg);border-bottom:0;padding:12px}
+.row{display:flex;gap:12px;align-items:flex-start;margin:4px 8px;padding:12px;border:0;border-radius:16px;background:var(--panel);position:relative;transition:transform .2s,opacity .2s,box-shadow .12s}
+.row:hover{background:var(--panel);box-shadow:0 2px 10px rgba(40,40,120,.14)}
+.row.on{background:var(--sel);box-shadow:inset 0 0 0 2px var(--acc)}
+.row.un{border-left:0}
+.row.un::before{content:"";position:absolute;left:-5px;top:50%;width:9px;height:9px;margin-top:-4px;border-radius:50%;background:var(--mark)}
+.row.bye{transform:translateX(70px);opacity:0}
+.rc{flex:1;min-width:0}
+.av{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:50%;color:#fff;font-weight:700;font-size:14px;flex:none}
+.qa{position:absolute;right:10px;bottom:8px;display:none;gap:4px}
+.row:hover .qa{display:flex}
+.qa button{padding:2px 10px;background:var(--panel)}
+#read{background:var(--bg);padding:0 32px 48px}
+.tb{background:var(--bg)}
+#read h2{font-size:24px;letter-spacing:-.4px}
+.msg{border:0;border-radius:20px;overflow:hidden;max-width:88%;margin-bottom:14px;box-shadow:0 1px 6px rgba(40,40,120,.12)}
+.msg.them{margin-right:auto;border-top-left-radius:6px}
+.msg.me{margin-left:auto;border-top-right-radius:6px;box-shadow:inset 0 0 0 2px var(--acc),0 1px 6px rgba(40,40,120,.12)}
+.msg.me summary{background:var(--sel)}
+.msg summary{align-items:center}
+.who{display:flex;align-items:center;gap:10px}
+.who .av{width:32px;height:32px;font-size:12px}
+.zero{padding:70px 0;line-height:1.7}
+.party{font-size:68px;animation:pop .6s cubic-bezier(.3,1.6,.5,1)}
+@keyframes pop{from{transform:scale(0) rotate(-40deg)}}
+dialog{border-radius:20px;animation:up .2s ease-out}
+@keyframes up{from{transform:translateY(16px);opacity:0}}
+#toast{border-radius:999px;padding:10px 20px}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
@@ -92,7 +141,7 @@ dialog textarea{height:280px;resize:vertical}
     <div id="list"></div>
     <button id="more" hidden>Charger plus</button>
   </section>
-  <main id="read"><div class="empty">Choisis un message pour le lire.</div></main>
+  <main id="read"><div class="empty zero">💬<br>Choisis une conversation pour la lire.</div></main>
 </div>
 
 <dialog id="compose">
@@ -169,13 +218,16 @@ async function boot(){
   setInterval(()=>{if(tok&&tok.exp>Date.now())loadLabels().catch(()=>{})},120000);
 }
 
+const AVC=['#5b5bf0','#e0457b','#0ea5a4','#f08c1a','#7c4dff','#2f9e44','#d6336c','#1971c2'];
+const IC={INBOX:'📥',STARRED:'⭐',SENT:'📤',DRAFT:'📝',SPAM:'🚫',TRASH:'🗑️'};
+function av(f){let h=0;for(const c of ad(f).toLowerCase())h=(h*31+c.charCodeAt(0))>>>0;const n=nm(f).replace(/[^\p{L}\p{N} ]/gu,'').trim();const i=(n.split(/\s+/).slice(0,2).map(w=>w[0]||'').join('')||'?').toUpperCase();return `<span class="av" style="background:${AVC[h%AVC.length]}">${esc(i)}</span>`}
 /* libellés */
 async function loadLabels(){
   const {labels}=await api('labels');
   const inbox=await api('labels/INBOX');
   const users=labels.filter(l=>l.type=='user').sort((a,b)=>a.name.localeCompare(b.name,'fr'));
   const all=[...SYS.map(([id,n])=>({id,name:n})),...users.map(l=>({id:l.id,name:l.name}))];
-  $('#labels').innerHTML=all.map(l=>`<a data-id="${esc(l.id)}" class="${l.id==S.label&&!S.q?'on':''}" tabindex="0"><span>${esc(l.name)}</span>${l.id=='INBOX'&&inbox.threadsUnread?`<span class="n">${inbox.threadsUnread}</span>`:''}</a>`).join('');
+  $('#labels').innerHTML=all.map(l=>`<a data-id="${esc(l.id)}" class="${l.id==S.label&&!S.q?'on':''}" tabindex="0"><span><i class="ic">${IC[l.id]||'🏷️'}</i>${esc(l.name)}</span>${l.id=='INBOX'&&inbox.threadsUnread?`<span class="n">${inbox.threadsUnread}</span>`:''}</a>`).join('');
   document.title=(inbox.threadsUnread?`(${inbox.threadsUnread}) `:'')+'Courrier';
 }
 $('#labels').onclick=e=>{const a=e.target.closest('a');if(!a)return;S.label=a.dataset.id;S.q='';$('#q').value='';document.querySelectorAll('#labels a').forEach(x=>x.classList.toggle('on',x==a));load()};
@@ -193,12 +245,18 @@ async function load(more){
   const det=await Promise.all((r.threads||[]).map(t=>api(`threads/${t.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`)));
   const html=det.map(t=>{
     const ms=t.messages,l=ms[ms.length-1],un=ms.some(m=>(m.labelIds||[]).includes('UNREAD'));
-    return `<div class="row${un?' un':''}${t.id==S.cur?' on':''}" data-id="${t.id}"><div class="t"><span class="f">${esc(nm(hdr(l,'From')))}${ms.length>1?` (${ms.length})`:''}</span><span class="d">${fd(hdr(l,'Date'))}</span></div><div class="s">${esc(hdr(ms[0],'Subject')||'(sans objet)')}</div><div class="sn">${esc(l.snippet)}</div></div>`}).join('');
-  if(!more)$('#list').innerHTML=html||'<div class="empty">Aucun message ici.</div>';else $('#list').insertAdjacentHTML('beforeend',html);
+    return `<div class="row${un?' un':''}${t.id==S.cur?' on':''}" data-id="${t.id}"><div class="avw">${av(hdr(l,'From'))}</div><div class="rc"><div class="t"><span class="f">${esc(nm(hdr(l,'From')))}${ms.length>1?` (${ms.length})`:''}</span><span class="d">${fd(hdr(l,'Date'))}</span></div><div class="s">${esc(hdr(ms[0],'Subject')||'(sans objet)')}</div><div class="sn">${esc(l.snippet)}</div></div><div class="qa"><button data-q="a" title="Archiver">✓</button><button data-q="t" title="Corbeille">🗑</button></div></div>`}).join('');
+  if(!more)$('#list').innerHTML=html||(S.q?'<div class="empty">Aucun résultat.</div>':'<div class="empty zero"><div class="party">🎉</div>Rien ici. Bien joué.</div>');else $('#list').insertAdjacentHTML('beforeend',html);
   $('#more').hidden=!S.next;
 }
 $('#more').onclick=()=>load(true);
-$('#list').onclick=e=>{const r=e.target.closest('.row');if(r)openT(r.dataset.id)};
+$('#list').onclick=async e=>{
+  const r=e.target.closest('.row');if(!r)return;const q=e.target.closest('[data-q]');
+  if(!q){openT(r.dataset.id);return}
+  const id=r.dataset.id,was=S.cur;S.cur=id;
+  if(q.dataset.q=='a'){await mod([],['INBOX']);toast('Archivé')}else{await api(`threads/${id}/trash`,{method:'POST'});toast('Mis à la corbeille')}
+  if(was&&was!=id){S.cur=was;r.classList.add('bye');setTimeout(()=>r.remove(),220);loadLabels()}else drop();
+};
 const rows=()=>[...document.querySelectorAll('.row')];
 
 /* lecture */
@@ -223,19 +281,19 @@ function fill(d,m){
 }
 function show(t){
   const ms=t.messages,starred=ms.some(m=>(m.labelIds||[]).includes('STARRED'));
-  $('#read').innerHTML=`<div class="tb"><button data-a="arch">Archiver</button><button data-a="trash">Corbeille</button><button data-a="unread">Marquer non lu</button><button data-a="star">${starred?'Ne plus suivre':'Suivre'}</button><span class="sp"></span><button class="pri" data-a="reply">Répondre</button><button data-a="fwd">Transférer</button></div><h2>${esc(hdr(ms[0],'Subject')||'(sans objet)')}</h2><div id="msgs"></div>`;
+  $('#read').innerHTML=`<div class="tb"><button data-a="arch">📥 Archiver</button><button data-a="trash">🗑 Corbeille</button><button data-a="unread">✉ Non lu</button><button data-a="star">${starred?'⭐ Suivi':'☆ Suivre'}</button><span class="sp"></span><button class="pri" data-a="reply">Répondre</button><button data-a="fwd">Transférer</button></div><h2>${esc(hdr(ms[0],'Subject')||'(sans objet)')}</h2><div id="msgs"></div>`;
   ms.forEach((m,i)=>{
-    const d=document.createElement('details');d.className='msg';d.open=i==ms.length-1;
+    const d=document.createElement('details');d.className='msg '+((m.labelIds||[]).includes('SENT')?'me':'them');d.open=i==ms.length-1;
     const f=hdr(m,'From'),cc=hdr(m,'Cc'),h=find(m.payload,'text/html');
-    d.innerHTML=`<summary><span><b>${esc(nm(f))}</b> <span class="mu">&lt;${esc(ad(f))}&gt;</span></span><span class="mu">${fl(hdr(m,'Date'))}</span></summary><div class="hd">À : ${esc(hdr(m,'To'))}${cc?` — Cc : ${esc(cc)}`:''}</div><div class="bd">${h&&!S.imgs&&/src=["']?https?:/i.test(dec(h.body.data))?'<div class="imgbar"><button data-a="img">Afficher les images distantes</button></div>':''}</div>${atts(m.payload).length?`<div class="at">${atts(m.payload).map(a=>`<button data-a="dl" data-m="${m.id}" data-aid="${esc(a.body.attachmentId)}" data-n="${esc(a.filename)}">${esc(a.filename)}</button>`).join('')}</div>`:''}`;
+    d.innerHTML=`<summary><span class="who">${av(f)}<span><b>${esc(nm(f))}</b> <span class="mu">&lt;${esc(ad(f))}&gt;</span></span></span><span class="mu">${fl(hdr(m,'Date'))}</span></summary><div class="hd">À : ${esc(hdr(m,'To'))}${cc?` — Cc : ${esc(cc)}`:''}</div><div class="bd">${h&&!S.imgs&&/src=["']?https?:/i.test(dec(h.body.data))?'<div class="imgbar"><button data-a="img">Afficher les images distantes</button></div>':''}</div>${atts(m.payload).length?`<div class="at">${atts(m.payload).map(a=>`<button data-a="dl" data-m="${m.id}" data-aid="${esc(a.body.attachmentId)}" data-n="${esc(a.filename)}">${esc(a.filename)}</button>`).join('')}</div>`:''}`;
     d.addEventListener('toggle',()=>fill(d,m));$('#msgs').append(d);fill(d,m);
   });
 }
 async function mod(add,rm){await api(`threads/${S.cur}/modify`,{method:'POST',body:JSON.stringify({addLabelIds:add,removeLabelIds:rm})})}
 function drop(){
   const rs=rows(),i=rs.findIndex(r=>r.dataset.id==S.cur),n=rs[i+1]||rs[i-1];
-  if(rs[i])rs[i].remove();
-  if(n)openT(n.dataset.id);else{S.cur=null;$('#read').innerHTML='<div class="empty">Boîte vide. Rien à traiter.</div>'}
+  if(rs[i]){const x=rs[i];x.classList.add('bye');setTimeout(()=>x.remove(),220)}
+  if(n)openT(n.dataset.id);else{S.cur=null;$('#read').innerHTML='<div class="empty zero"><div class="party">🎉</div><b>Boîte vide.</b><br>Rien à traiter, bien joué.</div>'}
   loadLabels();
 }
 $('#read').onclick=async e=>{
