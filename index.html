@@ -130,6 +130,12 @@ dialog{border-radius:20px;animation:up .2s ease-out}
 dialog h3{margin:0 0 4px}
 #mvl{display:grid;gap:6px;max-height:50vh;overflow:auto;margin-top:10px}
 #mvl button{text-align:left;border-radius:12px}
+.row{align-items:center}.row .pick{width:18px;height:18px;flex:none;margin:0;accent-color:var(--acc)}
+.bulkbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--line)}
+.tree-toggle{padding:0 5px!important;border:0!important;background:transparent!important;color:inherit!important}
+.tree-label{display:flex;align-items:center;min-width:0;flex:1}
+#labels a{gap:4px}#labels a .tree-label>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#attachlist{font-size:12px;color:var(--mute);margin:6px 0}#files{padding:6px;max-width:100%}
 </style>
 </head>
 <body>
@@ -158,7 +164,7 @@ dialog h3{margin:0 0 4px}
   </aside>
   <section id="lp">
     <div class="bar"><input id="q" placeholder="Rechercher dans tout le courrier ( / )" aria-label="Rechercher"><button id="refresh" title="Actualiser">Actualiser</button></div>
-    <div id="list"></div>
+    <div class="bulkbar" id="bulkbar" hidden><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="selectall" style="width:auto"> Tout sélectionner</label><span id="selcount"></span><button id="bulkMove">📁 Déplacer</button><button id="bulkArchive">📥 Archiver</button><button id="bulkClear">Annuler</button></div><div id="list"></div>
     <button id="more" hidden>Charger plus</button>
   </section>
   <main id="read"><div class="empty zero">💬<br>Choisis une conversation pour la lire.</div></main>
@@ -169,7 +175,7 @@ dialog h3{margin:0 0 4px}
   <label for="cc">Cc</label><input id="cc">
   <label for="sub">Objet</label><input id="sub">
   <label for="body">Message</label><textarea id="body"></textarea>
-  <p class="mu" style="color:var(--mute);font-size:12px;margin:6px 0 0">Texte brut. Les pièces jointes à l’envoi ne sont pas encore gérées.</p>
+  <label for="files">Pièces jointes</label><input id="files" type="file" multiple><div id="attachlist"></div>
   <div class="act"><button id="cancel">Annuler</button><button class="pri" id="send">Envoyer</button></div>
 </dialog>
 
@@ -185,7 +191,7 @@ const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"
 const SC='https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.send';
 const API='https://gmail.googleapis.com/gmail/v1/users/me/';
 const SYS=[['INBOX','Boîte de réception'],['STARRED','Suivis'],['SENT','Envoyés'],['DRAFT','Brouillons'],['SPAM','Spam'],['TRASH','Corbeille']];
-let CID=localStorage.gm_cid||'', tok=null, S={label:'INBOX',q:'',next:null,cur:null,thr:null,imgs:false}, C={};
+let CID=localStorage.gm_cid||'', tok=null, S={label:'INBOX',q:'',next:null,cur:null,thr:null,imgs:false}, C={}, selected=new Set(), collapsed=new Set(JSON.parse(localStorage.gm_collapsed||'[]'));
 try{tok=JSON.parse(sessionStorage.gm_tok||'null')}catch(e){}
 if(tok&&tok.exp<Date.now())tok=null;
 
@@ -246,23 +252,41 @@ const IC={INBOX:'📥',STARRED:'⭐',SENT:'📤',DRAFT:'📝',SPAM:'🚫',TRASH:
 function av(f){let h=0;for(const c of ad(f).toLowerCase())h=(h*31+c.charCodeAt(0))>>>0;const n=nm(f).replace(/[^\p{L}\p{N} ]/gu,'').trim();const i=(n.split(/\s+/).slice(0,2).map(w=>w[0]||'').join('')||'?').toUpperCase();return `<span class="av" style="background:${AVC[h%AVC.length]}">${esc(i)}</span>`}
 /* libellés */
 async function loadLabels(){
-  const {labels}=await api('labels');
-  const inbox=await api('labels/INBOX');
-  const users=labels.filter(l=>l.type=='user').sort((a,b)=>a.name.localeCompare(b.name,'fr'));
-  S.users=users;const all=[...SYS.map(([id,n])=>({id,name:n})),...users.map(l=>({id:l.id,name:l.name,u:1}))];
-  $('#labels').innerHTML=all.map((l,i)=>(l.u&&!all[i-1].u?'<div class="sec">Dossiers</div>':'')+`<a data-id="${esc(l.id)}"${l.u?` data-u="1" style="padding-left:${12+(l.name.split('/').length-1)*14}px"`:''} class="${l.id==S.label&&!S.q?'on':''}" tabindex="0"><span><i class="ic">${IC[l.id]||'🏷️'}</i>${esc(l.u?l.name.split('/').pop():l.name)}</span>${l.id=='INBOX'&&inbox.threadsUnread?`<span class="n">${inbox.threadsUnread}</span>`:''}${l.u?'<span class="fa"><button data-f="r" title="Renommer">✏️</button><button data-f="d" title="Supprimer">🗑</button></span>':''}</a>`).join('');
+  const {labels}=await api('labels'),inbox=await api('labels/INBOX');
+  const users=labels.filter(l=>l.type=='user').sort((a,b)=>a.name.localeCompare(b.name,'fr'));S.users=users;
+  const children=new Map();
+  users.forEach(l=>{const p=l.name.includes('/')?l.name.slice(0,l.name.lastIndexOf('/')):'';if(!children.has(p))children.set(p,[]);children.get(p).push(l)});
+  function tree(parent='',depth=0){
+    return (children.get(parent)||[]).map(l=>{
+      const has=children.has(l.name),closed=collapsed.has(l.name);
+      const own=`<a data-id="${esc(l.id)}" data-u="1" data-name="${esc(l.name)}" class="${l.id==S.label&&!S.q?'on':''}" tabindex="0" style="padding-left:${12+depth*14}px"><span class="tree-label">${has?`<button class="tree-toggle" data-toggle="${esc(l.name)}">${closed?'▸':'▾'}</button>`:'<span style="display:inline-block;width:22px"></span>'}<span>📁 ${esc(l.name.split('/').pop())}</span></span><span class="fa"><button data-f="c" title="Créer un sous-dossier">＋</button><button data-f="r" title="Renommer">✏️</button><button data-f="d" title="Supprimer">🗑</button></span></a>`;
+      return own+(closed?'':tree(l.name,depth+1));
+    }).join('');
+  }
+  $('#labels').innerHTML=SYS.map(([id,n])=>`<a data-id="${id}" class="${id==S.label&&!S.q?'on':''}" tabindex="0"><span><i class="ic">${IC[id]||'🏷️'}</i>${n}</span>${id=='INBOX'&&inbox.threadsUnread?`<span class="n">${inbox.threadsUnread}</span>`:''}</a>`).join('')+'<div class="sec">Dossiers</div>'+tree();
   document.title=(inbox.threadsUnread?`(${inbox.threadsUnread}) `:'')+'Courrier';
 }
 $('#labels').onclick=async e=>{
+  const toggle=e.target.closest('[data-toggle]');if(toggle){const n=toggle.dataset.toggle;collapsed.has(n)?collapsed.delete(n):collapsed.add(n);localStorage.gm_collapsed=JSON.stringify([...collapsed]);await loadLabels();return}
   const a=e.target.closest('a');if(!a)return;const f=e.target.closest('[data-f]');
   if(f){const id=a.dataset.id,l=S.users.find(x=>x.id==id);
-    if(f.dataset.f=='r'){const n=await askName('Renommer le dossier',l.name);if(n&&n!=l.name){await api('labels/'+id,{method:'PATCH',body:JSON.stringify({name:n})});toast('Dossier renommé');await loadLabels()}}
-    else if(confirm(`Supprimer le dossier « ${l.name} » ?\n\nLes mails ne sont pas supprimés : ils perdent seulement ce dossier.`)){await api('labels/'+id,{method:'DELETE'});toast('Dossier supprimé');if(S.label==id)S.label='INBOX';await loadLabels();load()}
+    if(f.dataset.f=='c'){const n=await askName('Nouveau sous-dossier',l.name+'/');if(n){const name=n.startsWith(l.name+'/')?n:l.name+'/'+n;await createLabel(name);toast('Sous-dossier créé');await loadLabels()}}
+    else if(f.dataset.f=='r'){const n=await askName('Renommer le dossier',l.name);if(n&&n!=l.name){await api('labels/'+id,{method:'PATCH',body:JSON.stringify({name:n})});toast('Dossier renommé');await loadLabels()}}
+    else if(confirm(`Supprimer le dossier « ${l.name} » ?\\n\\nLes mails ne sont pas supprimés : ils perdent seulement ce dossier.`)){await api('labels/'+id,{method:'DELETE'});toast('Dossier supprimé');if(S.label==id)S.label='INBOX';await loadLabels();load()}
     return}
-  S.label=a.dataset.id;S.q='';$('#q').value='';document.querySelectorAll('#labels a').forEach(x=>x.classList.toggle('on',x==a));load()};
+  S.label=a.dataset.id;S.q='';$('#q').value='';selected.clear();syncBulk();document.querySelectorAll('#labels a').forEach(x=>x.classList.toggle('on',x==a));load()};
 $('#q').onkeydown=e=>{if(e.key=='Enter'){S.q=e.target.value.trim();document.querySelectorAll('#labels a').forEach(x=>x.classList.remove('on'));load()}};
 $('#refresh').onclick=()=>{loadLabels();load()};
 
+function syncBulk(){
+  const ids=rows().map(r=>r.dataset.id);selected=new Set([...selected].filter(id=>ids.includes(id)));
+  $('#bulkbar').hidden=!selected.size;$('#selcount').textContent=selected.size?`${selected.size} sélectionné(s)`:'';$('#selectall').checked=!!ids.length&&ids.every(id=>selected.has(id));
+  document.querySelectorAll('[data-pick]').forEach(c=>c.checked=selected.has(c.dataset.pick));
+}
+$('#selectall').onchange=e=>{rows().forEach(r=>e.target.checked?selected.add(r.dataset.id):selected.delete(r.dataset.id));syncBulk()};
+$('#bulkClear').onclick=()=>{selected.clear();syncBulk()};
+$('#bulkArchive').onclick=async()=>{const ids=[...selected];for(const id of ids)await api(`threads/${id}/modify`,{method:'POST',body:JSON.stringify({removeLabelIds:['INBOX']})});selected.clear();toast(`${ids.length} mail(s) archivé(s)`);await loadLabels();await load()};
+$('#bulkMove').onclick=()=>{if(selected.size)openMove([...selected])};
 /* liste */
 async function load(more){
   const p=new URLSearchParams({maxResults:25});
@@ -274,9 +298,9 @@ async function load(more){
   const det=await Promise.all((r.threads||[]).map(t=>api(`threads/${t.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`)));
   const html=det.map(t=>{
     const ms=t.messages,l=ms[ms.length-1],un=ms.some(m=>(m.labelIds||[]).includes('UNREAD'));
-    return `<div class="row${un?' un':''}${t.id==S.cur?' on':''}" data-id="${t.id}" draggable="true"><div class="avw">${av(hdr(l,'From'))}</div><div class="rc"><div class="t"><span class="f">${esc(nm(hdr(l,'From')))}${ms.length>1?` (${ms.length})`:''}</span><span class="d">${fd(hdr(l,'Date'))}</span></div><div class="s">${esc(hdr(ms[0],'Subject')||'(sans objet)')}</div><div class="sn">${esc(l.snippet)}</div></div><div class="qa"><button data-q="m" title="Déplacer">📁</button><button data-q="a" title="Archiver">✓</button><button data-q="t" title="Corbeille">🗑</button></div></div>`}).join('');
+    return `<div class="row${un?' un':''}${t.id==S.cur?' on':''}" data-id="${t.id}" draggable="true"><input class="pick" type="checkbox" data-pick="${t.id}" aria-label="Sélectionner" ${selected.has(t.id)?'checked':''}><div class="avw">${av(hdr(l,'From'))}</div><div class="rc"><div class="t"><span class="f">${esc(nm(hdr(l,'From')))}${ms.length>1?` (${ms.length})`:''}</span><span class="d">${fd(hdr(l,'Date'))}</span></div><div class="s">${esc(hdr(ms[0],'Subject')||'(sans objet)')}</div><div class="sn">${esc(l.snippet)}</div></div><div class="qa"><button data-q="m" title="Déplacer">📁</button><button data-q="a" title="Archiver">✓</button><button data-q="t" title="Corbeille">🗑</button></div></div>`}).join('');
   if(!more)$('#list').innerHTML=html||(S.q?'<div class="empty">Aucun résultat.</div>':'<div class="empty zero"><div class="party">🎉</div>Rien ici. Bien joué.</div>');else $('#list').insertAdjacentHTML('beforeend',html);
-  $('#more').hidden=!S.next;
+  $('#more').hidden=!S.next;syncBulk();
 }
 $('#more').onclick=()=>load(true);
 $('#list').onclick=async e=>{
@@ -342,7 +366,7 @@ $('#read').onclick=async e=>{
 const sig=()=>localStorage.gm_sig?'\n\n-- \n'+localStorage.gm_sig:'';
 function compose(o={}){
   $('#to').value=o.to||'';$('#cc').value=o.cc||'';$('#sub').value=o.sub||'';$('#body').value=o.body!=null?o.body:sig();
-  C={tid:o.tid,irt:o.irt,refs:o.refs};$('#compose').showModal();
+  C={tid:o.tid,irt:o.irt,refs:o.refs};$('#files').value='';$('#attachlist').textContent='';$('#compose').showModal();
   const f=o.to?$('#body'):$('#to');f.focus();if(o.to)f.setSelectionRange(0,0);
 }
 function replyTo(kind){
@@ -353,16 +377,35 @@ function replyTo(kind){
   else compose({sub:/^(tr|fwd):/i.test(subj)?subj:'Tr: '+subj,body:sig()+`\n\n---------- Message transféré ----------\nDe : ${hdr(m,'From')}\nDate : ${fl(hdr(m,'Date'))}\nObjet : ${subj}\n\n`+plain(m)});
 }
 $('#newbtn').onclick=()=>compose();
+$('#files').onchange=()=>{$('#attachlist').textContent=[...$('#files').files].map(f=>`${f.name} (${Math.ceil(f.size/1024)} Ko)`).join(' · ')};
 $('#cancel').onclick=()=>$('#compose').close();
 $('#sigbtn').onclick=()=>{const s=prompt('Signature ajoutée à tes nouveaux messages :',localStorage.gm_sig||'');if(s!==null){localStorage.gm_sig=s;toast('Signature enregistrée')}};
 $('#send').onclick=async()=>{
-  const to=$('#to').value.trim(),cc=$('#cc').value.trim(),sub=$('#sub').value,body=$('#body').value;
+  const to=$('#to').value.trim(),cc=$('#cc').value.trim(),sub=$('#sub').value,body=$('#body').value,files=[...$('#files').files];
   if(!to){toast('Ajoute un destinataire.');return}
-  const enc=s=>/^[\x20-\x7e]*$/.test(s)?s:'=?UTF-8?B?'+u8b64(s)+'?=';
+  const enc=s=>/^[\\x20-\\x7e]*$/.test(s)?s:'=?UTF-8?B?'+u8b64(s)+'?=';
+  const crlf='\\r\\n';
+  const b64bytes=bytes=>{let bin='';for(let i=0;i<bytes.length;i+=0x8000)bin+=String.fromCharCode(...bytes.subarray(i,i+0x8000));return btoa(bin).replace(/.{1,76}/g,'$&\\r\\n')};
   const h=['To: '+to];if(cc)h.push('Cc: '+cc);
-  h.push('Subject: '+enc(sub),'MIME-Version: 1.0','Content-Type: text/plain; charset=UTF-8','Content-Transfer-Encoding: base64');
+  h.push('Subject: '+enc(sub),'MIME-Version: 1.0');
   if(C.irt)h.push('In-Reply-To: '+C.irt,'References: '+C.refs);
-  const raw=b64u(h.join('\r\n')+'\r\n\r\n'+u8b64(body).replace(/.{76}/g,'$&\r\n'));
+  let mime;
+  if(!files.length){
+    h.push('Content-Type: text/plain; charset=UTF-8','Content-Transfer-Encoding: base64');
+    mime=h.join(crlf)+crlf+crlf+b64bytes(new TextEncoder().encode(body));
+  }else{
+    const boundary='----Courrier_'+crypto.randomUUID().replace(/-/g,'');
+    h.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
+    const parts=[`--${boundary}`,'Content-Type: text/plain; charset=UTF-8','Content-Transfer-Encoding: base64','',b64bytes(new TextEncoder().encode(body))];
+    for(const f of files){
+      const data=b64bytes(new Uint8Array(await f.arrayBuffer()));
+      const safeName=enc(f.name).replace(/"/g,"'");
+      parts.push(`--${boundary}`,`Content-Type: ${f.type||'application/octet-stream'}; name="${safeName}"`,`Content-Disposition: attachment; filename="${safeName}"`,'Content-Transfer-Encoding: base64','',data);
+    }
+    parts.push(`--${boundary}--`);
+    mime=h.join(crlf)+crlf+crlf+parts.join(crlf);
+  }
+  const raw=b64u(mime);
   $('#send').disabled=true;
   try{await api('messages/send',{method:'POST',body:JSON.stringify(C.tid?{raw,threadId:C.tid}:{raw})});$('#compose').close();toast('Message envoyé')}
   finally{$('#send').disabled=false}
@@ -375,7 +418,7 @@ function askName(t,v){return new Promise(res=>{const d=$('#fd');$('#fdt').textCo
   $('#fdi').onkeydown=e=>{if(e.key=='Enter')done($('#fdi').value.trim())};
   d.oncancel=()=>res('');d.showModal();$('#fdi').select()})}
 async function createLabel(n){return api('labels',{method:'POST',body:JSON.stringify({name:n,labelListVisibility:'labelShow',messageListVisibility:'show'})})}
-function openMove(id){S.mv=id;
+function openMove(id){S.mv=Array.isArray(id)?id:[id];
   $('#mvl').innerHTML='<button data-id="INBOX">📥 Boîte de réception</button>'+(S.users||[]).map(l=>`<button data-id="${esc(l.id)}">📁 ${esc(l.name)}</button>`).join('')+'<button data-new="1">＋ Nouveau dossier…</button>';
   $('#mv').showModal()}
 $('#mvx').onclick=()=>$('#mv').close();
@@ -383,7 +426,7 @@ $('#mvl').onclick=async e=>{const b=e.target.closest('button');if(!b)return;$('#
   if(b.dataset.new){const n=await askName('Nouveau dossier','');if(!n)return;const l=await createLabel(n);t={id:l.id,name:l.name};await loadLabels()}
   else if(b.dataset.id=='INBOX')t={id:'INBOX',name:'Boîte de réception'};
   else t={id:b.dataset.id,name:S.users.find(x=>x.id==b.dataset.id).name};
-  moveTo(S.mv,t)};
+  for(const id of S.mv)await moveTo(id,t);selected.clear();syncBulk()};
 async function moveTo(id,t){
   const rm=t.id=='INBOX'?[]:['INBOX'];if(!S.q&&(S.users||[]).some(l=>l.id==S.label))rm.push(S.label);
   await api(`threads/${id}/modify`,{method:'POST',body:JSON.stringify({addLabelIds:[t.id],removeLabelIds:rm.filter(x=>x!=t.id)})});
