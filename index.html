@@ -136,6 +136,7 @@ dialog h3{margin:0 0 4px}
 .tree-label{display:flex;align-items:center;min-width:0;flex:1}
 #labels a{gap:4px}#labels a .tree-label>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #attachlist{font-size:12px;color:var(--mute);margin:6px 0}#files{padding:6px;max-width:100%}
+.chip{display:inline-flex;gap:6px;align-items:center;background:var(--sel);border-radius:999px;padding:3px 12px;margin:0 6px 6px 0;font-size:12px;cursor:default}
 </style>
 </head>
 <body>
@@ -164,7 +165,7 @@ dialog h3{margin:0 0 4px}
   </aside>
   <section id="lp">
     <div class="bar"><input id="q" placeholder="Rechercher dans tout le courrier ( / )" aria-label="Rechercher"><button id="refresh" title="Actualiser">Actualiser</button></div>
-    <div class="bulkbar" id="bulkbar" hidden><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="selectall" style="width:auto"> Tout sélectionner</label><span id="selcount"></span><button id="bulkMove">📁 Déplacer</button><button id="bulkArchive">📥 Archiver</button><button id="bulkClear">Annuler</button></div><div id="list"></div>
+    <div class="bulkbar" id="bulkbar" hidden><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="selectall" style="width:auto"> Tout sélectionner</label><span id="selcount"></span><button id="bulkMove">📁 Déplacer</button><button id="bulkArchive">📥 Archiver</button><button id="bulkTrash">🗑 Supprimer</button><button id="bulkClear">Annuler</button></div><div id="list"></div>
     <button id="more" hidden>Charger plus</button>
   </section>
   <main id="read"><div class="empty zero">💬<br>Choisis une conversation pour la lire.</div></main>
@@ -287,6 +288,10 @@ $('#selectall').onchange=e=>{rows().forEach(r=>e.target.checked?selected.add(r.d
 $('#bulkClear').onclick=()=>{selected.clear();syncBulk()};
 $('#bulkArchive').onclick=async()=>{const ids=[...selected];for(const id of ids)await api(`threads/${id}/modify`,{method:'POST',body:JSON.stringify({removeLabelIds:['INBOX']})});selected.clear();toast(`${ids.length} mail(s) archivé(s)`);await loadLabels();await load()};
 $('#bulkMove').onclick=()=>{if(selected.size)openMove([...selected])};
+$('#bulkTrash').onclick=async()=>{const ids=[...selected];if(!ids.length)return;
+  if(!confirm(`Mettre ${ids.length} mail(s) à la corbeille ?\n\nIls pourront être restaurés depuis la Corbeille de Gmail.`))return;
+  await Promise.all(ids.map(id=>api(`threads/${id}/trash`,{method:'POST'})));
+  gone(ids);selected.clear();syncBulk();toast(`${ids.length} mail(s) mis à la corbeille`);loadLabels()};
 /* liste */
 async function load(more){
   const p=new URLSearchParams({maxResults:25});
@@ -320,17 +325,25 @@ async function openT(id){
   const t=await api(`threads/${id}?format=full`);S.thr=t;show(t);
   if(t.messages.some(m=>(m.labelIds||[]).includes('UNREAD'))){await mod([],['UNREAD']);const r=document.querySelector(`.row[data-id="${id}"]`);if(r)r.classList.remove('un');loadLabels()}
 }
+/* Sécurité : tous les liens et formulaires deviennent du texte inerte, sans adresse ni infobulle */
+function safeHtml(html){
+  const d=new DOMParser().parseFromString(html,'text/html');
+  d.querySelectorAll('area,script,base,link,iframe,frame,object,embed,meta[http-equiv]').forEach(x=>x.remove());
+  d.querySelectorAll('a,form').forEach(x=>{const s=d.createElement('span');while(x.firstChild)s.appendChild(x.firstChild);x.replaceWith(s)});
+  d.querySelectorAll('*').forEach(x=>{for(const a of [...x.attributes])if(/^on|(^|:)href$/i.test(a.name)||(/^src$/i.test(a.name)&&x.tagName!='IMG'))x.removeAttribute(a.name)});
+  return (d.head?d.head.innerHTML:'')+(d.body?d.body.innerHTML:'');
+}
 function bodyDoc(m){
   const h=find(m.payload,'text/html');
-  const inner=h?dec(h.body.data):`<pre style="white-space:pre-wrap;font:inherit;margin:0">${esc(plain(m))}</pre>`;
-  return `<meta http-equiv="Content-Security-Policy" content="default-src 'none';img-src data: ${S.imgs?'https: http:':''};style-src 'unsafe-inline'"><base target="_blank"><style>body{font:14px/1.5 "Segoe UI",system-ui,sans-serif;margin:8px;color:#1a1a1a;word-wrap:break-word}img{max-width:100%;height:auto}</style>${inner}`;
+  const inner=h?safeHtml(dec(h.body.data)):`<pre style="white-space:pre-wrap;font:inherit;margin:0">${esc(plain(m))}</pre>`;
+  return `<meta http-equiv="Content-Security-Policy" content="default-src 'none';img-src data: ${S.imgs?'https: http:':''};style-src 'unsafe-inline';form-action 'none';base-uri 'none'"><style>body{font:14px/1.5 "Segoe UI",system-ui,sans-serif;margin:8px;color:#1a1a1a;word-wrap:break-word}img{max-width:100%;height:auto}</style>${inner}`;
 }
 function fill(d,m){
   if(!d.open||d.dataset.f)return;d.dataset.f=1;
   const f=document.createElement('iframe');
-  f.sandbox='allow-same-origin allow-popups allow-popups-to-escape-sandbox';
+  f.sandbox='allow-same-origin';
   f.srcdoc=bodyDoc(m);
-  f.onload=()=>{f.style.height=(f.contentDocument.documentElement.scrollHeight+6)+'px'};
+  f.onload=()=>{const dc=f.contentDocument;dc.addEventListener('click',e=>e.preventDefault(),true);f.style.height=(dc.documentElement.scrollHeight+6)+'px'};
   d.querySelector('.bd').append(f);
 }
 function show(t){
@@ -339,7 +352,7 @@ function show(t){
   ms.forEach((m,i)=>{
     const d=document.createElement('details');d.className='msg '+((m.labelIds||[]).includes('SENT')?'me':'them');d.open=i==ms.length-1;
     const f=hdr(m,'From'),cc=hdr(m,'Cc'),h=find(m.payload,'text/html');
-    d.innerHTML=`<summary><span class="who">${av(f)}<span><b>${esc(nm(f))}</b> <span class="mu">&lt;${esc(ad(f))}&gt;</span></span></span><span class="mu">${fl(hdr(m,'Date'))}</span></summary><div class="hd">À : ${esc(hdr(m,'To'))}${cc?` — Cc : ${esc(cc)}`:''}</div><div class="bd">${h&&!S.imgs&&/src=["']?https?:/i.test(dec(h.body.data))?'<div class="imgbar"><button data-a="img">Afficher les images distantes</button></div>':''}</div>${atts(m.payload).length?`<div class="at">${atts(m.payload).map(a=>`<button data-a="dl" data-m="${m.id}" data-aid="${esc(a.body.attachmentId)}" data-n="${esc(a.filename)}">${esc(a.filename)}</button>`).join('')}</div>`:''}`;
+    d.innerHTML=`<summary><span class="who">${av(f)}<span><b>${esc(nm(f))}</b> <span class="mu">&lt;${esc(ad(f))}&gt;</span></span></span><span class="mu">${fl(hdr(m,'Date'))}</span></summary><div class="hd">À : ${esc(hdr(m,'To'))}${cc?` — Cc : ${esc(cc)}`:''}</div><div class="bd">${h&&!S.imgs&&/src=["']?https?:/i.test(dec(h.body.data))?'<div class="imgbar"><button data-a="img">Afficher les images distantes</button></div>':''}</div>${atts(m.payload).length?`<div class="at">${atts(m.payload).map(a=>`<span class="chip" title="Téléchargement désactivé">🔒 ${esc(a.filename)}</span>`).join('')}</div>`:''}`;
     d.addEventListener('toggle',()=>fill(d,m));$('#msgs').append(d);fill(d,m);
   });
 }
@@ -359,7 +372,6 @@ $('#read').onclick=async e=>{
   else if(a=='img'){S.imgs=true;show(t)}
   else if(a=='move')openMove(S.cur);
   else if(a=='reply'||a=='fwd')replyTo(a);
-  else if(a=='dl'){const r=await api(`messages/${b.dataset.m}/attachments/${b.dataset.aid}`);const u=Uint8Array.from(atob(r.data.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));const l=document.createElement('a');l.href=URL.createObjectURL(new Blob([u]));l.download=b.dataset.n;l.click()}
 };
 
 /* rédaction */
@@ -426,7 +438,20 @@ $('#mvl').onclick=async e=>{const b=e.target.closest('button');if(!b)return;$('#
   if(b.dataset.new){const n=await askName('Nouveau dossier','');if(!n)return;const l=await createLabel(n);t={id:l.id,name:l.name};await loadLabels()}
   else if(b.dataset.id=='INBOX')t={id:'INBOX',name:'Boîte de réception'};
   else t={id:b.dataset.id,name:S.users.find(x=>x.id==b.dataset.id).name};
-  for(const id of S.mv)await moveTo(id,t);selected.clear();syncBulk()};
+  await moveMany(S.mv,t);selected.clear();syncBulk()};
+function gone(ids){
+  ids.forEach(i=>{const r=document.querySelector(`.row[data-id="${i}"]`);if(r){r.classList.add('bye');setTimeout(()=>r.remove(),220)}});
+  if(ids.includes(S.cur)){S.cur=null;$('#read').innerHTML='<div class="empty zero">💬<br>Choisis une conversation pour la lire.</div>'}
+}
+async function moveMany(ids,t){
+  if(ids.length==1)return moveTo(ids[0],t);
+  const rm=t.id=='INBOX'?[]:['INBOX'];if(!S.q&&(S.users||[]).some(l=>l.id==S.label))rm.push(S.label);
+  const bd=JSON.stringify({addLabelIds:[t.id],removeLabelIds:rm.filter(x=>x!=t.id)});
+  await Promise.all(ids.map(i=>api(`threads/${i}/modify`,{method:'POST',body:bd})));
+  toast(ids.length+' mails déplacés vers « '+t.name+' »');
+  if(!S.q&&rm.includes(S.label))gone(ids);
+  loadLabels();
+}
 async function moveTo(id,t){
   const rm=t.id=='INBOX'?[]:['INBOX'];if(!S.q&&(S.users||[]).some(l=>l.id==S.label))rm.push(S.label);
   await api(`threads/${id}/modify`,{method:'POST',body:JSON.stringify({addLabelIds:[t.id],removeLabelIds:rm.filter(x=>x!=t.id)})});
